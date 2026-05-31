@@ -1,0 +1,203 @@
+{
+  "Comment": "Football App Content Pipeline — Express Workflow. Triggered by news_ingestion Lambda after each RSS ingest cycle.",
+  "StartAt": "SelectContent",
+  "States": {
+    "SelectContent": {
+      "Type": "Task",
+      "Resource": "${ContentSelectionFunctionArn}",
+      "ResultPath": "$",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "PipelineFailed",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "CheckContentAvailable"
+    },
+
+    "CheckContentAvailable": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.content_found",
+          "BooleanEquals": true,
+          "Next": "GenerateCaption"
+        }
+      ],
+      "Default": "NoContentAvailable"
+    },
+
+    "GenerateCaption": {
+      "Type": "Task",
+      "Resource": "${CaptionGenerationFunctionArn}",
+      "ResultPath": "$",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "PipelineFailed",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "GenerateImagePrompt"
+    },
+
+    "GenerateImagePrompt": {
+      "Type": "Task",
+      "Resource": "${ImagePromptFunctionArn}",
+      "ResultPath": "$",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException"],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "PipelineFailed",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "GenerateImage"
+    },
+
+    "GenerateImage": {
+      "Type": "Task",
+      "Resource": "${ImageGenerationFunctionArn}",
+      "ResultPath": "$",
+      "TimeoutSeconds": 120,
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 15,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "PipelineFailed",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "CheckApprovalMode"
+    },
+
+    "CheckApprovalMode": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.approval_mode",
+          "StringEquals": "auto",
+          "Next": "PublishToInstagram"
+        },
+        {
+          "Variable": "$.approval_mode",
+          "StringEquals": "approval_required",
+          "Next": "WaitForApproval"
+        }
+      ],
+      "Default": "PublishToInstagram"
+    },
+
+    "WaitForApproval": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+      "Parameters": {
+        "FunctionName": "${ApprovalNotifierFunctionArn}",
+        "Payload": {
+          "task_token.$": "$$.Task.Token",
+          "post_id.$": "$.post_id",
+          "caption.$": "$.caption",
+          "image_presigned_url.$": "$.image_presigned_url",
+          "post_type.$": "$.post_type"
+        }
+      },
+      "ResultPath": "$.approval_result",
+      "HeartbeatSeconds": 86400,
+      "Catch": [
+        {
+          "ErrorEquals": ["PostRejected"],
+          "Next": "PostRejectedEnd",
+          "ResultPath": "$.rejection"
+        },
+        {
+          "ErrorEquals": ["States.HeartbeatTimeout"],
+          "Next": "ApprovalTimeout",
+          "ResultPath": "$.timeout"
+        }
+      ],
+      "Next": "PublishToInstagram"
+    },
+
+    "PublishToInstagram": {
+      "Type": "Task",
+      "Resource": "${InstagramPublisherFunctionArn}",
+      "ResultPath": "$",
+      "TimeoutSeconds": 60,
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException"],
+          "IntervalSeconds": 30,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "PublishFailed",
+          "ResultPath": "$.error"
+        }
+      ],
+      "End": true
+    },
+
+    "NoContentAvailable": {
+      "Type": "Succeed",
+      "Comment": "No new content to post — daily limit reached or no trends found."
+    },
+
+    "PostRejectedEnd": {
+      "Type": "Succeed",
+      "Comment": "Post was manually rejected by reviewer."
+    },
+
+    "ApprovalTimeout": {
+      "Type": "Succeed",
+      "Comment": "Approval window expired (24h). Post discarded."
+    },
+
+    "PipelineFailed": {
+      "Type": "Fail",
+      "Error": "PipelineError",
+      "Cause": "Content pipeline step failed after retries."
+    },
+
+    "PublishFailed": {
+      "Type": "Fail",
+      "Error": "PublishError",
+      "Cause": "Instagram publish failed after retries."
+    }
+  }
+}

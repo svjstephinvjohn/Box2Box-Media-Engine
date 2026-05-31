@@ -1,0 +1,10 @@
+{
+  "brand_name": "EPL INDIA",
+  "primary_color": "#3D195B",
+  "secondary_color": "#00FF85",
+  "background_gradient_start": "#1a0030",
+  "background_gradient_end": "#3D195B",
+  "font_family": "Inter",
+  "watermark_position": "bottom_right",
+  "logo_path": "app/media/assets/logos/epl_brand_logo.png"
+}

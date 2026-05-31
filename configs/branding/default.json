@@ -1,0 +1,10 @@
+  {
+  "brand_name": "FOOTBALL TODAY",
+  "primary_color": "#FFD700",
+  "secondary_color": "#FFFFFF",
+  "background_gradient_start": "#0f0f0f",
+  "background_gradient_end": "#1a1a2e",
+  "font_family": "Inter",
+  "watermark_position": "bottom_right",
+  "logo_path": "app/media/assets/logos/brand_logo.png"
+}
