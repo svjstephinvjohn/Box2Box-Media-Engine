@@ -62,7 +62,6 @@ def _create_post_record(post_id: str, event: dict, s3_key: str) -> None:
         "source_topic": event.get("content", {}).get("topic", ""),
         "trend_id": event.get("content", {}).get("trend_id", ""),
         "status": "pending",
-        "approval_mode": event.get("approval_mode", "auto"),
         "expires_at": ttl,
     })
 

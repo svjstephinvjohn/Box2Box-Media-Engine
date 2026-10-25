@@ -70,7 +70,6 @@ class LambdaStack(cdk.Stack):
             "OPENAI_MODEL": "gpt-4o",
             "OPENAI_EMBEDDING_MODEL": "text-embedding-3-small",
             "DAILY_POST_LIMIT": "5",
-            "APPROVAL_MODE": "auto",
             "DALLE_IMAGE_SIZE": "1024x1024",
             "RAG_TOP_K": "5",
             "RAG_SCAN_LIMIT": "200",
@@ -130,16 +129,6 @@ class LambdaStack(cdk.Stack):
             description="DALL-E 3 image generation + S3 upload + post record creation",
         )
 
-        self.approval_notifier_fn = self._create_lambda(
-            "ApprovalNotifier",
-            "approval_notifier/handler.py",
-            "handler",
-            memory_mb=128,
-            timeout_seconds=30,
-            env=common_env,
-            description="Send SNS approval notification and wait for task token callback",
-        )
-
         self.instagram_publisher_fn = self._create_lambda(
             "InstagramPublisher",
             "instagram_publisher/handler.py",
@@ -169,7 +158,6 @@ class LambdaStack(cdk.Stack):
         cdk.CfnOutput(self, "CaptionGenerationFnArn", value=self.caption_generation_fn.function_arn)
         cdk.CfnOutput(self, "ImagePromptFnArn", value=self.image_prompt_fn.function_arn)
         cdk.CfnOutput(self, "ImageGenerationFnArn", value=self.image_generation_fn.function_arn)
-        cdk.CfnOutput(self, "ApprovalNotifierFnArn", value=self.approval_notifier_fn.function_arn)
         cdk.CfnOutput(self, "InstagramPublisherFnArn", value=self.instagram_publisher_fn.function_arn)
 
     # ── Helpers ───────────────────────────────────────────────────────────────
@@ -207,7 +195,6 @@ class LambdaStack(cdk.Stack):
             self.caption_generation_fn,
             self.image_prompt_fn,
             self.image_generation_fn,
-            self.approval_notifier_fn,
             self.instagram_publisher_fn,
             self.token_refresh_fn,
         ]
@@ -246,10 +233,3 @@ class LambdaStack(cdk.Stack):
             )
         )
 
-        # approval_notifier needs SNS publish
-        self.approval_notifier_fn.add_to_role_policy(
-            iam.PolicyStatement(
-                actions=["sns:Publish"],
-                resources=["*"],
-            )
-        )

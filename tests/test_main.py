@@ -22,7 +22,6 @@ os.environ.update({
     "META_SECRET_NAME": "football-app/meta",
     "API_FOOTBALL_SECRET_NAME": "football-app/api-football",
     "DAILY_POST_LIMIT": "5",
-    "APPROVAL_MODE": "auto",
     "CONTENT_PIPELINE_SFN_ARN": "arn:aws:states:us-east-1:000000000000:stateMachine:test",
 })
 
@@ -146,7 +145,6 @@ class TestCaptionGeneration:
             event = {
                 "post_type": "breaking_news",
                 "content": {"topic": "Player signs new mega deal"},
-                "approval_mode": "auto",
             }
             result = handler(event, None)
 
@@ -163,7 +161,6 @@ class TestCaptionGeneration:
             event = {
                 "post_type": "transfer",
                 "content": {"topic": "Mbappe to Arsenal"},
-                "approval_mode": "auto",
             }
             result = handler(event, None)
 

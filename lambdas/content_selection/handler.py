@@ -12,7 +12,6 @@ Output (passed to next Step Functions state):
     "content_found": true,
     "post_type": "breaking_news" | "transfer" | "match_result",
     "content": { ...topic data },
-    "approval_mode": "auto" | "approval_required",
     "daily_posts_today": 3
   }
 
@@ -33,7 +32,6 @@ from boto3.dynamodb.conditions import Key, Attr
 from lambdas.shared.dynamodb_client import trends_table, posts_table
 
 DAILY_POST_LIMIT = int(os.environ.get("DAILY_POST_LIMIT", "5"))
-APPROVAL_MODE = os.environ.get("APPROVAL_MODE", "auto")  # "auto" | "approval_required"
 
 
 def _count_posts_today() -> int:
@@ -135,6 +133,5 @@ def handler(event: dict, context) -> dict:
         "content_found": True,
         "post_type": post_type,
         "content": content,
-        "approval_mode": APPROVAL_MODE,
         "daily_posts_today": posts_today,
     }

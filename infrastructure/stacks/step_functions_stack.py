@@ -53,7 +53,6 @@ class StepFunctionsStack(cdk.Stack):
             "${CaptionGenerationFunctionArn}": lk.caption_generation_fn.function_arn,
             "${ImagePromptFunctionArn}": lk.image_prompt_fn.function_arn,
             "${ImageGenerationFunctionArn}": lk.image_generation_fn.function_arn,
-            "${ApprovalNotifierFunctionArn}": lk.approval_notifier_fn.function_arn,
             "${InstagramPublisherFunctionArn}": lk.instagram_publisher_fn.function_arn,
         }
         for placeholder, arn in substitutions.items():
@@ -73,7 +72,6 @@ class StepFunctionsStack(cdk.Stack):
             lk.caption_generation_fn,
             lk.image_prompt_fn,
             lk.image_generation_fn,
-            lk.approval_notifier_fn,
             lk.instagram_publisher_fn,
         ]:
             fn.grant_invoke(sfn_role)

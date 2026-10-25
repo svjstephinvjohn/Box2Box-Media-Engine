@@ -6,7 +6,6 @@ Input (from Step Functions):
     "content_found": true,
     "post_type": "breaking_news" | "transfer" | "match_result",
     "content": { "topic": "...", "is_breaking": true, ... },
-    "approval_mode": "auto",
     "daily_posts_today": 2
   }
 

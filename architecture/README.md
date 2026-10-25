@@ -2,88 +2,42 @@
 
 ## Architecture Overview
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          AWS Free-Tier Serverless Architecture               │
-└─────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    EB1["EventBridge<br/>every 30 min"] --> NI["News ingestion<br/>RSS, embeddings, trends"]
+    EB2["EventBridge<br/>every 45 days"] --> TR["Token refresh"]
 
-EventBridge (cron every 30 min)
-        │
-        ▼
-┌──────────────────────┐
-│  News Ingestion      │  Lambda  512MB / 3min
-│  Lambda              │  ─ Fetch RSS feeds (8 sources)
-│                      │  ─ OpenAI text-embedding-3-small
-│                      │  ─ Store in DynamoDB + TTL 72h
-│                      │  ─ Detect trends → DynamoDB
-└──────────┬───────────┘
-           │ StartExecution
-           ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│                  Step Functions Express Workflow                          │
-│                  (football-app-content-pipeline)                         │
-│                                                                          │
-│  ┌─────────────────┐                                                     │
-│  │ Content         │  Lambda  256MB / 30s                                │
-│  │ Selection       │  ─ Read top trends (DynamoDB)                       │
-│  │                 │  ─ Deduplicate (skip posted in 24h)                 │
-│  │                 │  ─ Priority scoring:                                │
-│  │                 │      Breaking +30  World Cup +20  Transfer +10      │
-│  │                 │  ─ Check daily post limit (default: 5)              │
-│  └────────┬────────┘                                                     │
-│           │ content_found=true                                           │
-│           ▼                                                              │
-│  ┌─────────────────┐                                                     │
-│  │ Caption         │  Lambda  256MB / 60s                                │
-│  │ Generation      │  ─ DynamoDB RAG retrieval                          │
-│  │                 │  ─ Cosine similarity in Lambda (no OpenSearch)      │
-│  │                 │  ─ OpenAI GPT-4o caption                           │
-│  └────────┬────────┘                                                     │
-│           ▼                                                              │
-│  ┌─────────────────┐                                                     │
-│  │ Image Prompt    │  Lambda  128MB / 30s                                │
-│  │ Generation      │  ─ GPT-4o generates DALL-E prompt                  │
-│  └────────┬────────┘                                                     │
-│           ▼                                                              │
-│  ┌─────────────────┐                                                     │
-│  │ Image           │  Lambda  512MB / 2min                               │
-│  │ Generation      │  ─ DALL-E 3 (1024×1024)                            │
-│  │                 │  ─ Upload PNG → S3 (private + presigned URL)        │
-│  │                 │  ─ Create post record → DynamoDB                    │
-│  └────────┬────────┘                                                     │
-│           │                                                              │
-│    ┌──────┴──────┐                                                       │
-│    │ approval    │                                                       │
-│    │ mode?       │                                                       │
-│    └──┬─────┬───┘                                                       │
-│       │auto │approval_required                                          │
-│       │     ▼                                                           │
-│       │  ┌─────────────────┐                                            │
-│       │  │ Approval        │  WaitForTaskToken                          │
-│       │  │ Notifier        │  ─ SNS email with preview link             │
-│       │  │                 │  ─ Approve/Reject URLs                     │
-│       │  │                 │  ─ 24h expiry                              │
-│       │  └────────┬────────┘                                            │
-│       │           │ approved                                            │
-│       └─────┬─────┘                                                     │
-│             ▼                                                           │
-│  ┌─────────────────┐                                                     │
-│  │ Instagram       │  Lambda  256MB / 60s                                │
-│  │ Publisher       │  ─ Presigned URL → Meta Graph API                  │
-│  │                 │  ─ Create container → Publish                      │
-│  │                 │  ─ Update DynamoDB publishing log                  │
-│  └─────────────────┘                                                     │
-└──────────────────────────────────────────────────────────────────────────┘
+    NI -->|starts workflow| CS
 
-EventBridge (every 45 days)
-        │
-        ▼
-┌──────────────────────┐
-│  Token Refresh       │  Lambda  128MB / 30s
-│  Lambda              │  ─ Refresh Instagram long-lived token
-│                      │  ─ Update Secrets Manager
-└──────────────────────┘
+    subgraph SFN["Step Functions express workflow"]
+        direction TB
+        CS["Content selection<br/>top trend, dedupe, daily cap"]
+        CG["Caption generation<br/>RAG + GPT-4o"]
+        IP["Image prompt<br/>GPT-4o"]
+        IG["Image generation<br/>DALL-E 3"]
+        PUB["Instagram publisher"]
+        CS --> CG --> IP --> IG --> PUB
+    end
+
+    RSS[("RSS feeds<br/>7 sources")] --> NI
+    NI <--> OAI["OpenAI API<br/>embeddings, GPT-4o, DALL-E 3"]
+    CG <--> OAI
+    IP <--> OAI
+    IG <--> OAI
+
+    NI --> DDB[("DynamoDB<br/>articles, trends, posts, publishing log")]
+    CS --> DDB
+    CG --> DDB
+    IG --> S3[("S3<br/>private images")]
+    IG --> DDB
+    PUB --> META["Meta Graph API<br/>Instagram"]
+    PUB --> DDB
+
+    TR --> SM[("Secrets Manager<br/>API keys and tokens")]
+    TR --> META
 ```
+
+**Flow:** EventBridge triggers news ingestion every 30 minutes. It fetches RSS articles, embeds them, stores them in DynamoDB and starts the workflow. The workflow picks the top trend, writes a caption using RAG over recent articles (cosine similarity computed in Lambda, no vector database), drafts an image prompt, generates the image with DALL-E 3, and publishes it to Instagram through the Meta Graph API. A separate schedule refreshes the Instagram access token every 45 days.
 
 ---
 
@@ -141,7 +95,6 @@ GSI: `source-date-index` (source_name, ingested_at)
 | `image_s3_key` | String | S3 object key |
 | `source_topic` | String | Trend topic (for dedup) |
 | `status` | String | pending / published / rejected |
-| `approval_mode` | String | auto / approval_required |
 | `expires_at` | Number | Unix epoch (TTL, 30 days) |
 
 GSI: `status-index` (status, created_at)
@@ -181,7 +134,6 @@ GSI: `status-index` (status, created_at)
 | `caption_generation` | 256 MB | 60 s | Step Functions |
 | `image_prompt` | 128 MB | 30 s | Step Functions |
 | `image_generation` | 512 MB | 2 min | Step Functions |
-| `approval_notifier` | 128 MB | 30 s | Step Functions (WaitForTaskToken) |
 | `instagram_publisher` | 256 MB | 60 s | Step Functions |
 | `token_refresh` | 128 MB | 30 s | EventBridge every 45 days |
 
@@ -252,14 +204,6 @@ cdk bootstrap aws://YOUR_ACCOUNT_ID/us-east-1
 cdk deploy --all --require-approval never
 ```
 
-### Manual approval mode
-To switch to human-approval mode, update the Lambda environment variable:
-```bash
-aws lambda update-function-configuration \
-  --function-name football-app-contentselection \
-  --environment "Variables={APPROVAL_MODE=approval_required,...}"
-```
-
 ---
 
 ## Folder Structure
@@ -282,7 +226,6 @@ Football_App/
 │   ├── caption_generation/handler.py
 │   ├── image_prompt/handler.py
 │   ├── image_generation/handler.py
-│   ├── approval_notifier/handler.py
 │   ├── instagram_publisher/handler.py
 │   └── token_refresh/handler.py
 ├── infrastructure/               # AWS CDK (Python)
@@ -311,7 +254,6 @@ Football_App/
 | Step Functions | Per-state `Retry` blocks; `Catch` routes failures to `PipelineFailed` terminal state |
 | News ingest | Individual article failures are caught and logged; pipeline continues |
 | Instagram publish | 3× retry with 30s interval; failure logged to DynamoDB publishing log |
-| Token expiry | Approval WaitForTaskToken has 24h heartbeat timeout → `ApprovalTimeout` success state |
 
 ---
 
