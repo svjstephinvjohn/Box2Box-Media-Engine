@@ -37,7 +37,6 @@ class Settings(BaseSettings):
 
     # ── Publishing ────────────────────────────────────────────────────────────
     daily_post_limit: int = 5
-    approval_mode: str = "auto"  # "auto" | "approval_required"
 
 
 @lru_cache
